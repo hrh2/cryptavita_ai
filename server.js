@@ -6,7 +6,8 @@ require('dotenv').config();
 const {localconnection,onlineconnection} =require('./DB/connector')
 const {saveMessage} = require('./controllers/Save_update_chat')
 
-localconnection()
+// localconnection()
+onlineconnection()
 
 const app = express();
 const server = http.createServer(app);
