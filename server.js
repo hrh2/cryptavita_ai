@@ -3,9 +3,14 @@ const http = require('http');
 const socketIo = require('socket.io');
 const { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } = require("@google/generative-ai");
 require('dotenv').config();
+const {localconnection,onlineconnection} =require('./DB/connector')
+const {saveMessage} = require('./controllers/Save_update_chat')
+
+localconnection()
 
 const app = express();
 const server = http.createServer(app);
+
 const io = socketIo(server, {
     cors: {
       origin: "*",
@@ -13,12 +18,19 @@ const io = socketIo(server, {
       credentials: true
     }
   });
+
 const genAI = new GoogleGenerativeAI(process.env.API_KEY);
 
-// app.use(express.static(__dirname + '/client/build'));
+class UserResponse {
+  constructor(question, message, Timestamp = new Date()) {
+      this.question = question;
+      this.message = message;
+      this.Timestamp = Timestamp;
+  }
+}
 
 io.on('connection', (socket) => {
-  console.log('A user connected');
+  // console.log('A user connected');
   socket.on('generateContent', async (prompt) => {
     try {
       const generationConfig = {
@@ -28,7 +40,6 @@ io.on('connection', (socket) => {
         maxOutputTokens: 8192,
         responseMimeType: "text/plain",
       };
-
       const safetySettings = [
         {
           category: HarmCategory.HARM_CATEGORY_HARASSMENT,
@@ -47,51 +58,31 @@ io.on('connection', (socket) => {
           threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
         },
       ];
-
-      const model = genAI.getGenerativeModel({
-        model: "gemini-1.5-flash",
-        systemInstruction: {
-          parts: [
-            { text: 'Your mission is to give information about Rwanda.' },
-            { text: 'Your mission is to give Rwanda geographical details.' },
-            { text: 'Your mission is to explain Rwandan Climate .' },
-          ],
-        }
-      });
-
+      const model = genAI.getGenerativeModel({model: "gemini-1.5-flash"});
       const textPart = {
-        text: `User input: ${prompt ? prompt : "what can you tell me about Rwanda in you Response include in icons where possible"}.\nAnswer:`,
+        text: `${prompt.message}.`,
       };
-
+    
       const request = {
         contents: [{ role: 'user', parts: [textPart] }],
       };
-
       const result = await model.generateContent(request, generationConfig, safetySettings);
       const response = await result.response;
       const text = await response.text();
-     const cleanedText = text.replace(/\*/g, '');
-        // console.log(cleanedText);
-
-      
-      // Emit the generated text back to the client
-      socket.emit('generatedContent', { text: cleanedText, sentByUser: false });
+      const cleanedMessage = text.replace(/\*/g, '');
+      const returnMessage = new UserResponse(prompt.message,cleanedMessage)
+      saveMessage(prompt.chat_id,prompt.user_id,returnMessage)
+      socket.emit('generatedContent', returnMessage);
     } catch (error) {
-      if (error instanceof GoogleGenerativeAIResponseError) {
-        console.error("Content was blocked due to safety concerns.");
-        socket.emit('generatedContent', "Content was blocked due to safety concerns.");
-      } else {
-        console.error("An unexpected error occurred:", error);
-        socket.emit('generatedContent', "An unexpected error occurred. Please try again later.");
-      }
+        socket.emit('generatedContent',new UserResponse(prompt.message,"Check if the internent is stable plz"))
     }
   });
 
   socket.on('disconnect', () => {
-    // console.log('User disconnected');
+    console.log('User disconnected');
   });
 });
 
 server.listen(process.env.PORT || 5000, () => {
-//   console.log('Server listening on port 5000');
+  console.log(`Server listening on port ${process.env.PORT||5000}`);
 });
